@@ -111,35 +111,42 @@ void getopts(int argc, char** argv)
 }
 
 
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <string.h>
+#include <time.h>
+#include <sys/time.h>
+
 #define LOGA_DEBUG 0
 #define LOGA_INFO 1
-#include <stdarg.h>
-#include <time.h>
-#include <sys/timeb.h>
+
+
 void MyLog(int LOGA_level, char* format, ...)
 {
-	static char msg_buf[256];
-	va_list args;
-	struct timeb ts;
+    static char msg_buf[256];
+    va_list args;
+    struct timeval ts;
+    struct tm *timeinfo;
 
-	struct tm *timeinfo;
+    if (LOGA_level == LOGA_DEBUG && options.verbose == 0)
+        return;
 
-	if (LOGA_level == LOGA_DEBUG && options.verbose == 0)
-	  return;
+    gettimeofday(&ts, NULL);  // ✅ correct modern function
+    timeinfo = localtime(&ts.tv_sec);  // ✅ get broken-down time
 
-	ftime(&ts);
-	timeinfo = localtime(&ts.time);
-	strftime(msg_buf, 80, "%Y%m%d %H%M%S", timeinfo);
+    strftime(msg_buf, 80, "%Y%m%d %H%M%S", timeinfo);
+    sprintf(&msg_buf[strlen(msg_buf)], ".%.3ld ", ts.tv_usec / 1000);  // ✅ show milliseconds
 
-	sprintf(&msg_buf[strlen(msg_buf)], ".%.3hu ", ts.millitm);
+    va_start(args, format);
+    vsnprintf(&msg_buf[strlen(msg_buf)], sizeof(msg_buf) - strlen(msg_buf), format, args);
+    va_end(args);
 
-	va_start(args, format);
-	vsnprintf(&msg_buf[strlen(msg_buf)], sizeof(msg_buf) - strlen(msg_buf), format, args);
-	va_end(args);
-
-	printf("%s\n", msg_buf);
-	fflush(stdout);
+    printf("%s\n", msg_buf);
+    fflush(stdout);
 }
+
 
 
 #if defined(WIN32) || defined(_WINDOWS)
@@ -261,7 +268,11 @@ int checkMQTTSNStrings(MQTTSNString a, MQTTSNString b)
 		if (b.cstring)
 			b.lenstring.len = strlen(b.cstring);
 	}
+
+	if (a.lenstring.data && b.lenstring.data)
 	return memcmp(a.lenstring.data, b.lenstring.data, min(a.lenstring.len, b.lenstring.len)) == 0;
+     else
+      return -1; 
 }
 
 int checkMQTTSNTopics(MQTTSN_topicid a, MQTTSN_topicid b)

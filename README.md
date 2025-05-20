@@ -1,48 +1,110 @@
-# Eclipse Paho MQTT-SN C/C++ client for Embedded platforms
 
-This repository contains the source code for the [Eclipse Paho](http://eclipse.org/paho) MQTT-SN C/C++ client library for Embedded platorms.
+# MQTT-SN Gateway and Client Communication Setup  
+*By Fraz Yousaf*
 
-It is dual licensed under the EPL and EDL (see about.html and notice.html for more details).  You can choose which of these licenses you want to use the code under.  The EDL allows you to embed the code into your application, and distribute your application in binary or source form without contributing any of your code, or any changes you make back to Paho.  See the EDL for the exact conditions.
+This project demonstrates how to configure and test an MQTT-SN (MQTT for Sensor Networks) setup using Eclipse Paho's `mqtt-sn.embedded-c` implementation. It includes running a local MQTT broker, MQTT-SN Gateway, and simple publisher/subscriber clients.
 
-There are three sub-projects:
+---
 
-1. MQTTSNPacket - simple de/serialization of MQTT-SN packets, plus helper functions
-2. MQTTGateway - MQTT-SN transparent/aggregating gateway - connects MQTT-SN clients with an MQTT server.  See the README within the project for more information.
-3. MQTTSNClient - high(er) level C++ client (not yet complete)
+## 🔧 Environment
 
-The *MQTTSNPacket* directory contains the lowest level C library with the smallest requirements.  This supplies simple serialization
-and deserialization routines.  They serve as a base for the higher level libraries, but can also be used on their own.
-It is mainly up to you to write and read to and from the network.
+- **Operating System:** Ubuntu (WSL or native)
+- **MQTT Broker:** Mosquitto
+- **MQTT-SN Gateway:** From `paho.mqtt-sn.embedded-c/MQTTSNGateway`
+- **MQTT-SN Clients:** `qos0pub`, `pub0sub1` (from `MQTTSNPacket/samples`)
 
-The *MQTTSNGateway* directory contains an MQTT-SN to MQTT transparent/aggregating gateway (see the MQTT-SN specification for a description of that.)  It can
-be used to connect the MQTT-SN client to an MQTT server.
+---
 
-The *MQTTSNClient* directory contains the next level C++ library.  This is intended to mirror the way the MQTTClient works in the Paho embedded
-MQTT project, but it's not yet complete.
+## 📦 Setup Instructions
 
-## Build requirements / compilation
+### 1. Install Dependencies
 
-CMake builds have been introduced, along with Travis-CI configuration for automated build & testing.
+```bash
+sudo apt update
+sudo apt install git cmake build-essential mosquitto
+```
 
-The travis-build.sh file has the full build and test sequence for Linux.
+### 2. Clone the Project (if not already cloned)
 
+```bash
+git clone https://github.com/frazyousaf/mqtt-sn-demo.git
+cd mqtt-sn-demo
+```
 
-## Usage and API
+> *If you are working inside an existing cloned directory such as `~/paho.mqtt-sn.embedded-c`, skip this step.*
 
-See the samples directories for examples of intended use.  Doxygen config files are available in the doc directory.
+### 3. Build the Project
 
-## Runtime tracing
+```bash
+mkdir build
+cd build
+cmake ..
+make
+```
 
+---
 
-## Reporting bugs
+## 🚀 Running the MQTT-SN Setup
 
-This project uses GitHub Issues here: [github.com/eclipse/paho.mqtt-sn.embedded-c/issues](https://github.com/eclipse/paho.mqtt-sn.embedded-c/issues) to track ongoing development and issues.
+Run the following steps in **separate terminal tabs or windows**:
 
-## More information
+### Step 1: Start the MQTT Broker (Mosquitto)
 
-Discussion of the Paho clients takes place on the [Eclipse Mattermost Paho channel](https://mattermost.eclipse.org/eclipse/channels/paho) and the [Eclipse paho-dev mailing list](https://dev.eclipse.org/mailman/listinfo/paho-dev).
+```bash
+mosquitto -v
+```
 
-General questions about the MQTT protocol are discussed in the [MQTT Google Group](https://groups.google.com/forum/?hl=en-US&fromgroups#!forum/mqtt).
+> This will start the Mosquitto broker on `localhost:1883`.
 
-More information is available via the [MQTT community](http://mqtt.org).
+### Step 2: Start the MQTT-SN Gateway
 
+```bash
+cd ~/paho.mqtt-sn.embedded-c/MQTTSNGateway/bin
+./MQTT-SNGateway -f gateway.conf
+```
+
+> Make sure your `gateway.conf` file is correctly configured to connect to the Mosquitto broker.
+
+### Step 3: Run the Publisher Client
+
+```bash
+cd ~/paho.mqtt-sn.embedded-c/build/MQTTSNPacket/samples
+./qos0pub 127.0.0.1 10000 tt "Hello my name is fraz yousaf"
+```
+
+> This sends the message `"Hello my name is fraz yousaf"` to topic `tt` on port `10000`.
+
+### Step 4: Run the Subscriber Client
+
+```bash
+./pub0sub1 127.0.0.1 10000 tt
+```
+
+> This subscribes to topic `tt` and waits to receive messages.
+
+---
+
+## 📁 Project Structure (Key Files/Folders)
+
+```
+paho.mqtt-sn.embedded-c/
+├── build/                      # Build directory after cmake
+│   └── MQTTSNPacket/samples/   # Contains publisher and subscriber clients
+├── MQTTSNGateway/bin/          # Contains MQTT-SN Gateway binary
+├── MQTTSNGateway/gateway.conf  # Gateway configuration file
+├── README.md                   # This file
+└── .gitignore
+```
+
+---
+
+## 👨‍💻 Author
+
+**Fraz Yousaf**  
+PhD Student, University of Parma  
+Email: [fraz.yousaf@unipr.it](mailto:fraz.yousaf@unipr.it)  
+GitHub: [frazyousaf](https://github.com/frazyousaf)
+
+---
+
+*Feel free to open issues or contribute!*
