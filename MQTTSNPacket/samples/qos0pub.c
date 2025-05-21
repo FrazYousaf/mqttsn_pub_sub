@@ -17,6 +17,7 @@ int main(int argc, char** argv)
     int payloadlen = strlen((char*)payload);
     char *host = "127.0.0.1";
     int port = 10000;
+    char *topicname = "tt";
     MQTTSNPacket_connectData options = MQTTSNPacket_connectData_initializer;
     options.duration = KEEP_ALIVE;
 
@@ -26,6 +27,8 @@ int main(int argc, char** argv)
 
     if (argc > 1) host = argv[1];
     if (argc > 2) port = atoi(argv[2]);
+    if (argc > 3) 
+        topicname = argv[3];
 
     printf("Sending to hostname %s port %d\n", host, port);
 
@@ -51,7 +54,7 @@ int main(int argc, char** argv)
 
     /* Publish */
     topic.type = MQTTSN_TOPIC_TYPE_SHORT;
-    memcpy(topic.data.short_name, "tt", 2);
+    memcpy(topic.data.short_name, topicname, 2);
     len = MQTTSNSerialize_publish(buf, buflen, 0, 0, 0, 0, topic, payload, payloadlen);
     rc = transport_sendPacketBuffer(host, port, buf, len);
     printf("rc %d from send packet for publish length %d\n", rc, len);

@@ -6,7 +6,7 @@
 #include "MQTTSNPacket.h"
 #include "transport.h"
 
-#define KEEP_ALIVE_INTERVAL 60  // Must match CONNECT packet duration
+#define KEEP_ALIVE_INTERVAL 60  // seconds
 
 int main(int argc, char** argv)
 {
@@ -20,29 +20,30 @@ int main(int argc, char** argv)
     int qos = 1;
     unsigned char retained = 0;
     short packetid = 1;
-    char *topicname = "tt";  // Default topic
+    char *topicname = "tt";
+    char clientID[50] = "pub0sub1";  // Default client ID
     char *host = "127.0.0.1";
     int port = 10000;
     MQTTSNPacket_connectData options = MQTTSNPacket_connectData_initializer;
     options.duration = KEEP_ALIVE_INTERVAL;
-    unsigned short topicid = 0;
 
-    mysock = transport_open();
-    if(mysock < 0)
-        return mysock;
-
+    // Handle command line args
     if (argc > 1) host = argv[1];
     if (argc > 2) port = atoi(argv[2]);
     if (argc > 3) topicname = argv[3];
+    if (argc > 4) snprintf(clientID, sizeof(clientID), "%s", argv[4]);
 
     printf("Sending to hostname %s port %d\n", host, port);
+    printf("Client ID: %s\n", clientID);
 
-    /* Connect */
-    options.clientID.cstring = "pub0sub1 MQTT-SN";
+    mysock = transport_open();
+    if (mysock < 0) return mysock;
+
+    // Connect
+    options.clientID.cstring = clientID;
     len = MQTTSNSerialize_connect(buf, buflen, &options);
     rc = transport_sendPacketBuffer(host, port, buf, len);
 
-    /* Wait for CONNACK */
     if (MQTTSNPacket_read(buf, buflen, transport_getdata) == MQTTSN_CONNACK)
     {
         int connack_rc = -1;
@@ -52,20 +53,26 @@ int main(int argc, char** argv)
             goto exit;
         }
         else
-            printf("connected rc %d\n", connack_rc);
+        {
+            printf("Connected (rc=%d)\n", connack_rc);
+        }
     }
     else
+    {
+        printf("Failed to receive CONNACK\n");
         goto exit;
+    }
 
-    /* Subscribe */
-    printf("Subscribing\n");
+    // Subscribe
     topic.type = MQTTSN_TOPIC_TYPE_SHORT;
-    memcpy(topic.data.short_name, topicname, 2);  // Use short topic directly
+    memcpy(topic.data.short_name, topicname, 2);  // Use short topic name
 
+    printf("Subscribing to topic: %s\n", topicname);
     len = MQTTSNSerialize_subscribe(buf, buflen, 0, qos, packetid, &topic);
     rc = transport_sendPacketBuffer(host, port, buf, len);
 
-    /* Handle SUBACK */
+    // Handle SUBACK
+    unsigned short topicid;
     if (MQTTSNPacket_read(buf, buflen, transport_getdata) == MQTTSN_SUBACK)
     {
         unsigned short submsgid;
@@ -74,31 +81,34 @@ int main(int argc, char** argv)
         rc = MQTTSNDeserialize_suback(&granted_qos, &topicid, &submsgid, &returncode, buf, buflen);
         if (granted_qos != qos || returncode != 0)
         {
-            printf("granted qos != %d, %d return code %d\n", qos, granted_qos, returncode);
+            printf("SUBACK error: qos=%d return code=%d\n", granted_qos, returncode);
             goto exit;
         }
         else
-            printf("suback topic id %d\n", topicid);
+        {
+            printf("Subscribed successfully. Topic ID: %d\n", topicid);
+        }
     }
     else
+    {
+        printf("Did not receive SUBACK\n");
         goto exit;
+    }
 
-    /* Main loop with keep-alive */
+    // Setup for PINGREQ
+    MQTTSNString ping_clientid = MQTTSNString_initializer;
+    ping_clientid.cstring = clientID;
+
     printf("Waiting for messages...\n");
     struct timeval last_packet, now;
     gettimeofday(&last_packet, NULL);
 
-
-    MQTTSNString clientid = MQTTSNString_initializer;
-clientid.cstring = "pub0sub1 MQTT-SN";
-
-    while(1)
+    while (1)
     {
         fd_set readset;
         FD_ZERO(&readset);
         FD_SET(mysock, &readset);
 
-        /* Calculate timeout */
         gettimeofday(&now, NULL);
         long elapsed = now.tv_sec - last_packet.tv_sec;
         long remaining = KEEP_ALIVE_INTERVAL - elapsed;
@@ -108,7 +118,8 @@ clientid.cstring = "pub0sub1 MQTT-SN";
             .tv_usec = 0
         };
 
-        if (select(mysock + 1, &readset, NULL, NULL, &timeout) > 0)
+        int select_rc = select(mysock + 1, &readset, NULL, NULL, &timeout);
+        if (select_rc > 0)
         {
             int msgType = MQTTSNPacket_read(buf, buflen, transport_getdata);
             if (msgType == MQTTSN_PUBLISH)
@@ -122,26 +133,36 @@ clientid.cstring = "pub0sub1 MQTT-SN";
                 if (MQTTSNDeserialize_publish(&msg_dup, &msg_qos, &msg_retained, &packet_id, &pubtopic,
                         &payload, &payloadlen, buf, buflen) == 1)
                 {
-                    /* Print received message */
                     if (pubtopic.type == MQTTSN_TOPIC_TYPE_SHORT)
                         printf("Topic (short): %c%c\n", pubtopic.data.short_name[0], pubtopic.data.short_name[1]);
+
                     printf("Message received: %.*s\n", payloadlen, payload);
-                    
-                    /* Reset keep-alive timer */
                     gettimeofday(&last_packet, NULL);
                 }
             }
+            else if (msgType == MQTTSN_DISCONNECT)
+            {
+                printf("Received DISCONNECT from gateway/broker.\n");
+                break;
+            }
+        }
+        else if (select_rc == 0)
+        {
+            // Timeout: send PINGREQ
+            printf("Keep-alive timeout, sending PINGREQ\n");
+            len = MQTTSNSerialize_pingreq(buf, buflen, ping_clientid);
+            transport_sendPacketBuffer(host, port, buf, len);
+            gettimeofday(&last_packet, NULL);
         }
         else
         {
-            /* Send PINGREQ on timeout */
-            len = MQTTSNSerialize_pingreq(buf, buflen, clientid);
-            transport_sendPacketBuffer(host, port, buf, len);
-            gettimeofday(&last_packet, NULL);
+            perror("select error");
+            break;
         }
     }
 
 exit:
     transport_close();
+    printf("Client exiting.\n");
     return 0;
 }
